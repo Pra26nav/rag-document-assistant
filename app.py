@@ -28,52 +28,10 @@ if "llm" not in st.session_state:
 
 st.set_page_config(page_title="RAG Document Assistant", page_icon="📄", layout="wide")
 
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;800&family=DM+Sans:wght@300;400;500&display=swap');
-html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
-
-@media (prefers-color-scheme: dark) {
-    .stApp { background: linear-gradient(135deg, #0a0a0f 0%, #0f0f1a 50%, #0a0a0f 100%) !important; color: #e8e6f0 !important; }
-    .stTextInput > div > div > input { background: #0d0d1a !important; color: #e8e6f0 !important; }
-    [data-testid="stSidebar"] { background: #0a0a14 !important; }
-    [data-testid="stSidebar"] * { color: #e8e6f0 !important; }
-}
-@media (prefers-color-scheme: light) {
-    .stApp { background: #f8f7ff !important; color: #1a1a2e !important; }
-    [data-testid="stSidebar"] { background: #f0eeff !important; }
-}
-
-[data-testid="stSidebar"] { border-right: 4px solid #7c6af7 !important; }
-
-.hero { text-align: center; padding: 2rem 0 1.5rem 0; border-bottom: 1px solid #7c6af7; margin-bottom: 2rem; }
-.hero h1 { font-family: 'Syne', sans-serif; font-size: 2.2rem; font-weight: 800; background: linear-gradient(90deg, #5b4fd4, #7c6af7, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0; }
-.hero p { font-size: 0.9rem; opacity: 0.55; margin-top: 0.3rem; }
-
-.section-label { font-family: 'Syne', sans-serif; font-size: 0.68rem; font-weight: 600; letter-spacing: 3px; text-transform: uppercase; color: #7c6af7; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
-.section-label::after { content: ''; flex: 1; height: 1px; background: #7c6af7; opacity: 0.25; }
-
-.chat-user { background: #7c6af7; color: white; padding: 0.8rem 1.2rem; border-radius: 16px 16px 4px 16px; margin: 0.5rem 0; max-width: 80%; margin-left: auto; font-size: 0.9rem; }
-.chat-ai { background: white; border: 1px solid #e0dcff; color: #1a1a2e; padding: 0.8rem 1.2rem; border-radius: 16px 16px 16px 4px; margin: 0.5rem 0; max-width: 85%; font-size: 0.9rem; line-height: 1.7; }
-.chat-source { font-size: 0.72rem; color: #7c6af7; margin-top: 0.4rem; font-style: italic; }
-
-.doc-card { background: white; border: 1px solid #e0dcff; border-radius: 12px; padding: 1rem 1.2rem; margin-bottom: 0.5rem; }
-.doc-card h4 { font-family: 'Syne', sans-serif; font-size: 0.85rem; color: #1a1a2e; margin: 0 0 0.3rem 0; }
-.doc-card p { font-size: 0.78rem; color: #888; margin: 0; }
-
-.stat-row { display: flex; gap: 1rem; margin-bottom: 1.5rem; }
-.stat-box { background: white; border: 1px solid #e0dcff; border-radius: 10px; padding: 0.8rem 1.2rem; text-align: center; flex: 1; }
-.stat-num { font-family: 'Syne', sans-serif; font-size: 1.4rem; font-weight: 800; color: #7c6af7; }
-.stat-label { font-size: 0.7rem; color: #888; text-transform: uppercase; letter-spacing: 1px; }
-
-.stButton > button { background: linear-gradient(135deg, #7c6af7, #5b4fd4) !important; color: white !important; border: none !important; border-radius: 10px !important; font-family: 'Syne', sans-serif !important; font-weight: 600 !important; width: 100% !important; transition: all 0.2s !important; }
-.stButton > button:hover { transform: translateY(-1px) !important; box-shadow: 0 8px 20px rgba(124,106,247,0.35) !important; }
-.stTextInput > div > div > input { border: 1.5px solid #7c6af7 !important; border-radius: 10px !important; padding: 0.75rem 1rem !important; }
-.stTextInput label { color: #7c6af7 !important; font-size: 0.82rem !important; font-weight: 500 !important; }
-
-#MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
-</style>
-""", unsafe_allow_html=True)
+# Load external CSS
+# Load external CSS
+with open("style.css") as f:
+    st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
 # --- HERO ---
 st.markdown("""
@@ -112,45 +70,105 @@ with st.sidebar:
         chunk_overlap = st.slider("Chunk Overlap", 0, 200, 50, 25, help="Overlap between chunks")
 
         if st.button("🔄 Process Documents"):
+            import hashlib
+            import pickle
+
+            os.makedirs("cache", exist_ok=True)
+
             with st.spinner("Processing PDFs..."):
                 all_text = ""
                 total_pages = 0
                 file_names = []
 
-                for uploaded_file in uploaded_files:
-                    reader = PdfReader(uploaded_file)
-                    total_pages += len(reader.pages)
-                    file_names.append(uploaded_file.name)
-                    for page_num, page in enumerate(reader.pages):
-                        text = page.extract_text()
-                        if text:
-                            all_text += f"\n[PAGE {page_num + 1} | {uploaded_file.name}]\n{text}"
+                # Build cache key from all filenames + sizes
+                cache_key = hashlib.md5(
+                    "".join([f.name + str(f.size) for f in uploaded_files]).encode()
+                ).hexdigest()
+                cache_path = f"cache/{cache_key}.faiss"
+                meta_path = f"cache/{cache_key}.meta"
 
-                if not all_text.strip():
-                    st.error("No text found in PDFs. Try a different file.")
-                else:
-                    # Split into chunks
-                    splitter = RecursiveCharacterTextSplitter(
-                        chunk_size=chunk_size,
-                        chunk_overlap=chunk_overlap,
-                        separators=["\n\n", "\n", ".", " "]
-                    )
-                    chunks = splitter.split_text(all_text)
-
-                    # Embed + store in FAISS
+                # Check cache
+                if os.path.exists(cache_path) and os.path.exists(meta_path):
+                    st.info("⚡ Loading from cache — instant!")
                     embeddings = get_embeddings()
-                    vector_store = FAISS.from_texts(chunks, embeddings)
+                    vector_store = FAISS.load_local(
+                        cache_path,
+                        embeddings,
+                        allow_dangerous_deserialization=True
+                    )
+                    with open(meta_path, "rb") as f:
+                        cached_meta = pickle.load(f)
 
-                    # Build conversational chain
                     st.session_state.vector_store = vector_store
                     st.session_state.llm = get_llm()
                     st.session_state.chat_history = []
-                    st.session_state.doc_meta = {
-                        "files": file_names,
-                        "pages": total_pages,
-                        "chunks": len(chunks)
-                    }
-                    st.success(f"✦ {len(chunks)} chunks indexed!")
+                    st.session_state.doc_meta = cached_meta
+                    st.success(f"✦ Loaded from cache in <1s!")
+
+                else:
+                    # Process fresh
+                    progress_bar = st.progress(0)
+                    status = st.empty()
+
+                    for idx, uploaded_file in enumerate(uploaded_files):
+                        status.text(f"📄 Reading {uploaded_file.name}...")
+                        reader = PdfReader(uploaded_file)
+                        total_pages += len(reader.pages)
+                        file_names.append(uploaded_file.name)
+
+                        for page_num, page in enumerate(reader.pages):
+                            text = page.extract_text()
+                            if text:
+                                all_text += f"\n[PAGE {page_num + 1} | {uploaded_file.name}]\n{text}"
+
+                        progress_bar.progress((idx + 1) / (len(uploaded_files) * 3))
+
+                    if not all_text.strip():
+                        st.error("No text found in PDFs. Try a different file.")
+                    else:
+                        status.text("✂️ Splitting into chunks...")
+                        splitter = RecursiveCharacterTextSplitter(
+                            chunk_size=chunk_size,
+                            chunk_overlap=chunk_overlap,
+                            separators=["\n\n", "\n", ".", " "]
+                        )
+                        chunks = splitter.split_text(all_text)
+                        progress_bar.progress(0.5)
+
+                        status.text(f"🧠 Embedding {len(chunks)} chunks...")
+                        embeddings = get_embeddings()
+
+                        # Batch embedding — 32 chunks at a time
+                        # Batch embedding — 32 chunks at a time
+                        batch_size = 32
+                        total_batches = (len(chunks) + batch_size - 1) // batch_size
+
+                        for batch_num, i in enumerate(range(0, len(chunks), batch_size)):
+                            batch = chunks[i:i+batch_size]
+                            status.text(f"🧠 Embedding batch {batch_num+1}/{total_batches} ({len(batch)} chunks)...")
+                            progress_bar.progress(0.5 + 0.4 * ((batch_num+1) / total_batches))
+
+                        vector_store = FAISS.from_texts(chunks, embeddings)
+                        progress_bar.progress(0.95)
+
+                        status.text("💾 Saving to cache...")
+                        vector_store.save_local(cache_path)
+                        doc_meta = {
+                            "files": file_names,
+                            "pages": total_pages,
+                            "chunks": len(chunks)
+                        }
+                        with open(meta_path, "wb") as f:
+                            pickle.dump(doc_meta, f)
+
+                        progress_bar.progress(1.0)
+                        status.text("✅ Done!")
+
+                        st.session_state.vector_store = vector_store
+                        st.session_state.llm = get_llm()
+                        st.session_state.chat_history = []
+                        st.session_state.doc_meta = doc_meta
+                        st.success(f"✦ {len(chunks)} chunks indexed + cached!")
 
     # Doc stats
     if st.session_state.doc_meta:
