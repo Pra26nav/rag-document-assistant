@@ -1,3 +1,17 @@
+"""
+app.py — RAG Document Assistant
+================================
+A Streamlit app for intelligent PDF Q&A using:
+- LangChain + FAISS for vector search
+- HuggingFace embeddings (all-MiniLM-L6-v2, local)
+- Groq LLM (llama-3.3-70b-versatile) for answers
+- MD5-based caching for instant repeat loads
+- Multi-PDF support with per-document tab switching
+
+Usage:
+    streamlit run app.py
+"""
+
 import streamlit as st
 import os
 from dotenv import load_dotenv
